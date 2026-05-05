@@ -28,6 +28,7 @@ files {
     'shared/classes/robbery.lua',
     'modules/cooldowns.lua',
     'modules/rewards.lua',
+    'modules/tokens.lua',
 }
 
 dependencies {

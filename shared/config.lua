@@ -99,4 +99,18 @@ Config.INTERRUPT = {
     maxMoveDistance = 2.0,
 }
 
+-- ─── Server-side validation ─────────────────────────────────────────────────
+-- One-shot token system: the server issues a token on requestRobbery and
+-- consumes it on reportSuccess/reportFailure. Prevents replay, decouples the
+-- complete call from any client-supplied coords/state.
+Config.TOKEN = {
+    ttlMs        = 30 * 1000,  -- token lifetime (covers anim + skillcheck)
+    minElapsedMs = 1500,       -- reject completes that come back faster than the skillcheck possibly could
+}
+
+-- Buffer added on top of MAX_INTERACT_DIST when the server checks the player's
+-- actual ped position vs. the postbox coords. Accommodates network drift while
+-- the player is locked in the pry animation.
+Config.SERVER_DISTANCE_BUFFER = 2.0
+
 return Config

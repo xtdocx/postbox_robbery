@@ -141,23 +141,35 @@ end
 
 -- ─── translated reasons ──────────────────────────────────────────────────────
 local REJECT_REASONS = {
-    no_crowbar      = 'You need a crowbar in hand.',
-    player_cooldown = 'Wait before trying another postbox.',
-    invalid_payload = 'Something went wrong.',
+    no_crowbar           = 'You need a crowbar in hand.',
+    player_cooldown      = 'Wait before trying another postbox.',
+    too_far              = 'You are too far from the postbox.',
+    too_fast             = 'Slow down.',
+    invalid_payload      = 'Something went wrong.',
+    invalid_token        = 'Session expired — try again.',
+    unknown_token        = 'Session expired — try again.',
+    token_consumed       = 'Already processed.',
+    token_owner_mismatch = 'Session mismatch — try again.',
+    token_expired        = 'Session expired — try again.',
 }
 
 -- ─── main flow ───────────────────────────────────────────────────────────────
 local function attemptRobbery(entity)
     local entityCoords = GetEntityCoords(entity)
 
-    local accepted, reason = lib.callback.await(
+    local accepted, tokenOrReason = lib.callback.await(
         'postbox_robbery:server:requestRobbery', false, { coords = entityCoords }
     )
 
     if not accepted then
-        notify('error', REJECT_REASONS[reason] or 'Cannot rob this right now.')
+        notify('error', REJECT_REASONS[tokenOrReason] or 'Cannot rob this right now.')
         return
     end
+
+    -- The server validated weapon, cooldown, and distance, and gave us a
+    -- single-use token. The complete handlers identify the robbery purely
+    -- by this token; client-supplied coords are no longer trusted.
+    local token = tokenOrReason
 
     setActive(true)
 
@@ -181,33 +193,28 @@ local function attemptRobbery(entity)
     stopAnim(ped, config.ANIMATION.pry)
 
     if robbery:isCancelled() then
+        -- Don't report — the token will expire on its own. Reporting failure
+        -- here would burn a token the server already rate-limits via cooldown.
         notify('error', 'Interrupted.')
-        lib.callback.await('postbox_robbery:server:completeRobbery', false, {
-            coords  = entityCoords,
-            success = false,
-        })
     elseif not skillCheckRan then
         -- Export was missing or threw — never show the stuck punishment for
         -- this case; the player did not actually get a chance to fail.
         notify('error', 'Skillcheck failed to load. Try again shortly.')
-        lib.callback.await('postbox_robbery:server:completeRobbery', false, {
-            coords  = entityCoords,
-            success = false,
-        })
     elseif hackSucceeded then
-        local ok, result = lib.callback.await('postbox_robbery:server:completeRobbery', false, {
-            coords  = entityCoords,
-            success = true,
+        local ok, result = lib.callback.await('postbox_robbery:server:reportSuccess', false, {
+            token = token,
         })
         if ok and result and result.cash then
             notify('success', ('You found $%d in the postbox.'):format(result.cash))
+        elseif type(result) == 'string' then
+            notify('error', REJECT_REASONS[result] or 'Reward refused.')
         end
     else
-        -- Genuine skillcheck failure — apply the stuck punishment.
+        -- Genuine skillcheck failure — report to server and apply the stuck
+        -- punishment locally if the chance roll comes up.
         playSound(config.SOUND.fail)
-        lib.callback.await('postbox_robbery:server:completeRobbery', false, {
-            coords  = entityCoords,
-            success = false,
+        lib.callback.await('postbox_robbery:server:reportFailure', false, {
+            token = token,
         })
 
         -- Stop watcher threads before the stuck loop — it runs its own control
